@@ -59,6 +59,15 @@ typedef double f64;
 #   error "Unsupported alignof for current compiler."
 #endif
 
+#if defined (RIPC_COMPILER_CLANG)
+#   ifndef RIPC_THREAD_LOCAL
+#       define RIPC_THREAD_LOCAL __thread
+#   endif
+#else
+// TODO(robin): msvc __declspec(thread)
+#   error "Unsupported thread local for current compiler"
+#endif
+
 #ifdef RIPC_LINUX
 #   ifndef RIPC_POSIX
 #       define RIPC_POSIX 1
@@ -85,11 +94,19 @@ typedef double f64;
 #   define RIPC_MAX(a, b) (a) <= (b) ? (b) : (a)
 #endif
 
-#ifndef RIBC_MEM_UNITS_DEFINED
-#   define RIBC_KIB(n) ((u64)(n) << 10)
-#   define RIBC_MIB(n) ((u64)(n) << 20)
-#   define RIBC_GIB(n) ((u64)(n) << 30)
-#   define RIBC_TIB(n) ((u64)(n) << 40)
+#ifndef RIPC_ARRAY_SIZE
+#   define RIPC_ARRAY_SIZE(array) (sizeof(array) / sizeof(*(array)))
+#endif
+
+#ifndef RIPC_MEM_UNITS_DEFINED
+#   define RIPC_KIB(n) ((u64)(n) << 10)
+#   define RIPC_MIB(n) ((u64)(n) << 20)
+#   define RIPC_GIB(n) ((u64)(n) << 30)
+#   define RIPC_TIB(n) ((u64)(n) << 40)
+#endif
+
+#ifndef RIPC_DEFER_LOOP
+#   define RIPC_DEFER_LOOP(start, end) for (b32 _t_ = ((start), true); _t_; (_t_ = false), (end))
 #endif
 
 // ripc: platform
@@ -131,6 +148,27 @@ void *vm_reserve(usize size);
 b32 vm_commit(void *ptr, usize size);
 void vm_release(void *ptr, usize size);
 
+// ripc: platform -> mutex
+
+#ifdef RIPC_POSIX
+#   include <pthread.h>
+
+typedef struct Mutex {
+    pthread_mutex_t     mutex;
+    pthread_mutexattr_t attr;
+} Mutex;
+#else
+#   error "Unsupported platform for mutex support."
+#endif
+
+RIPC_FUNC void mutex_init(Mutex *mutex);
+RIPC_FUNC void mutex_destroy(Mutex *mutex);
+RIPC_FUNC void mutex_lock(Mutex *mutex);
+RIPC_FUNC b32 mutex_try_lock(Mutex *mutex);
+RIPC_FUNC void mutex_unlock(Mutex *mutex);
+
+#define RIPC_MUTEX_GUARD(mutex) RIPC_DEFER_LOOP(mutex_lock(mutex), mutex_unlock(mutex))
+
 // ripc: arena
 
 // TODO(robin): add mutex for thread saftey with asan and allocations
@@ -139,6 +177,7 @@ typedef struct Arena {
     usize commited;
     usize reserved;
     usize pos;
+    Mutex mutex;
 } Arena;
 
 typedef struct ArenaTemp {
@@ -147,15 +186,65 @@ typedef struct ArenaTemp {
 } ArenaTemp;
 
 RIPC_FUNC Arena *arena_new(usize commited, usize reserved);
+// WARN: This function is not thread safe
 RIPC_FUNC void arena_free(Arena *arena);
 
 #define arena_push_struct(arena, type) arena_push((arena), sizeof(type), RIPC_ALIGNOF(type))
 #define arena_push_array(arena, type, count) arena_push((arena), sizeof(type) * (count), RIPC_ALIGNOF(type))
+#define arena_push_slice(arena, slicetype, count) (slicetype) { .data = arena_push((arena), sizeof(((slicetype*)NULL)->data[0]), RIPC_ALIGNOF(((slicetype*)NULL)->data[0])), .len = (count) }
 
 RIPC_FUNC void *arena_push(Arena *arena, isize size, isize alignment);
 RIPC_FUNC void arena_pos_set(Arena *arena, usize pos);
 RIPC_FUNC void arena_clear(Arena *arena);
 RIPC_FUNC ArenaTemp arena_temp_begin(Arena *arena);
 RIPC_FUNC void arena_temp_end(ArenaTemp temp);
+
+// ripc: arena -> temp arenas
+
+extern RIPC_THREAD_LOCAL Arena *_scratch_arenas[2];
+RIPC_FUNC ArenaTemp arena_scratch_get(Arena **conflicts, isize conflicts_count);
+RIPC_FUNC void arena_scratch_end(ArenaTemp temp);
+
+// ripc: slice
+
+#include <assert.h>
+
+typedef struct RawSlice {
+    void  *data;
+    isize len;
+} RawSlice;
+
+static inline void slice_raw(RawSlice *slice, RawSlice *out, isize from, isize to, isize item_size) {
+    assert(0 <= from && from <= to && to <= slice->len);
+    out->len = to - from;
+    if (out->len > 0) {
+        out->data = (void*)(from * item_size + (uintptr)slice->data);
+    }
+}
+
+#define RIPC_SLICE(in, out, from, to) slice_raw((RawSlice*) &(in), (RawSlice*) &(out), (from), (to), sizeof((out).data[0]))
+#define RIPC_SLICE_GET(slice, i) assert(0 <= (i) && (i) < (slice).len), slice.data[(i)]
+#define RIPC_SLICE_SET(slice, i, value) assert(0 <= (i) && (i) < (slice).len), slice.data[(i)] = (value)
+
+typedef struct SliceU8 {
+    u8    *data;
+    isize len;
+} SliceU8;
+typedef SliceU8 Bytes;
+
+// ripc: strings
+
+typedef struct String {
+    u8    *data;
+    isize len;
+} String;
+
+#define RIPC_STR(s) (String) { .data = (u8*)(s), .len = sizeof(s) - 1 };
+
+RIPC_FUNC b32 string_eq(String a, String b);
+
+// ripc: file system
+
+RIPC_FUNC Bytes fs_read_entire_file(Arena *arena, String path, b32 *ok);
 
 #endif // RIPC_H
