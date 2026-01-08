@@ -141,9 +141,11 @@ RIPC_FUNC Arena *arena_new(usize commited, usize reserved) {
 
 RIPC_FUNC void arena_free(Arena *arena) {
 #if RIPC_HAVE_ASAN
-    MUTEX_GUARD(&arena->mutex) {
-        void *data = arena->data;
-        usize size = arena->reserved;
+    void *data = NULL;
+    usize size = 0;
+    RIPC_MUTEX_GUARD(&arena->mutex) {
+        data = arena->data;
+        size = arena->reserved;
     }
 #endif
     // WARN: possible race condition, the mutex might not be unlocked. It is very hard to prove that it isn't.

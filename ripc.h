@@ -95,7 +95,7 @@ typedef double f64;
 #endif
 
 #ifndef RIPC_ARRAY_SIZE
-#   define RIPC_ARRAY_SIZE(array) (sizeof(array) / sizeof(*(array)))
+#   define RIPC_ARRAY_SIZE(array) (isize)(sizeof(array) / sizeof(*(array)))
 #endif
 
 #ifndef RIPC_MEM_UNITS_DEFINED
