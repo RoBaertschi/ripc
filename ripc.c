@@ -261,6 +261,7 @@ RIPC_FUNC void arena_scratch_end(ArenaTemp temp) {
 // ripc: slices
 
 RIPC_DEFINE_SLICE_FUNCTIONS(Bytes, u8, bytes);
+RIPC_DEFINE_SLICE_FUNCTIONS(String, u8, string);
 
 // ripc: strings
 

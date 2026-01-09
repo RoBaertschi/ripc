@@ -191,7 +191,6 @@ RIPC_FUNC void arena_free(Arena *arena);
 
 #define arena_push_struct(arena, type) arena_push((arena), sizeof(type), RIPC_ALIGNOF(type))
 #define arena_push_array(arena, type, count) arena_push((arena), sizeof(type) * (count), RIPC_ALIGNOF(type))
-#define arena_push_slice(arena, slicetype, count) (slicetype) { .data = arena_push((arena), sizeof(((slicetype*)NULL)->data[0]), RIPC_ALIGNOF(((slicetype*)NULL)->data[0])), .len = (count) }
 
 RIPC_FUNC void *arena_push(Arena *arena, isize size, isize alignment);
 RIPC_FUNC void arena_pos_set(Arena *arena, usize pos);
@@ -216,11 +215,19 @@ typedef struct name {                      \
 } name;                                    \
 
 #define RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(name, type, function_prefix) \
+RIPC_FUNC name function_prefix##_new(Arena *arena, isize count);            \
 RIPC_FUNC type function_prefix##_get(name slice, isize idx);                \
 RIPC_FUNC void function_prefix##_set(name slice, isize idx, type item);     \
 RIPC_FUNC name function_prefix##_slice(name slice, isize from, isize to);
 
 #define RIPC_DEFINE_SLICE_FUNCTIONS(name, type, function_prefix)          \
+RIPC_FUNC name function_prefix##_new(Arena *arena, isize count) {         \
+    type *data = arena_push_array(arena, type, count);                    \
+    return (name) {                                                       \
+        .data = data,                                                     \
+        .len = data == NULL ? 0 : count,                                  \
+    };                                                                    \
+}                                                                         \
 RIPC_FUNC type function_prefix##_get(name slice, isize idx) {             \
     assert(0 <= idx && idx < slice.len);                                  \
     return slice.data[idx];                                               \
@@ -245,10 +252,8 @@ RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(Bytes, u8, bytes);
 
 // ripc: strings
 
-typedef struct String {
-    u8    *data;
-    isize len;
-} String;
+RIPC_DEFINE_SLICE_TYPE(String, u8);
+RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(String, u8, string);
 
 #define RIPC_STR(s) (String) { .data = (u8*)(s), .len = sizeof(s) - 1 };
 
