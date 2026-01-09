@@ -241,7 +241,7 @@ RIPC_FUNC name function_prefix##_slice(name slice, isize from, isize to) {\
 }
 
 RIPC_DEFINE_SLICE_TYPE(Bytes, u8);
-RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(Bytes, u8, bytes_);
+RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(Bytes, u8, bytes);
 
 // ripc: strings
 
