@@ -209,28 +209,39 @@ RIPC_FUNC void arena_scratch_end(ArenaTemp temp);
 
 #include <assert.h>
 
-typedef struct RawSlice {
-    void  *data;
-    isize len;
-} RawSlice;
+#define RIPC_DEFINE_SLICE_TYPE(name, type) \
+typedef struct name {                      \
+    type  *data;                           \
+    isize len;                             \
+} name;                                    \
 
-static inline void slice_raw(RawSlice *slice, RawSlice *out, isize from, isize to, isize item_size) {
-    assert(0 <= from && from <= to && to <= slice->len);
-    out->len = to - from;
-    if (out->len > 0) {
-        out->data = (void*)(from * item_size + (uintptr)slice->data);
-    }
+#define RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(name, type, function_prefix) \
+RIPC_FUNC type function_prefix##_get(name slice, isize idx);                \
+RIPC_FUNC void function_prefix##_set(name slice, isize idx, type item);     \
+RIPC_FUNC name function_prefix##_slice(name slice, isize from, isize to);
+
+#define RIPC_DEFINE_SLICE_FUNCTIONS(name, type, function_prefix)          \
+RIPC_FUNC type function_prefix##_get(name slice, isize idx) {             \
+    assert(0 <= idx && idx < slice.len);                                  \
+    return slice.data[idx];                                               \
+}                                                                         \
+RIPC_FUNC void function_prefix##_set(name slice, isize idx, type item) {  \
+    assert(0 <= idx && idx < slice.len);                                  \
+    slice.data[idx] = item;                                               \
+}                                                                         \
+                                                                          \
+RIPC_FUNC name function_prefix##_slice(name slice, isize from, isize to) {\
+    assert(0 <= from && from <= to && to <= slice.len);                   \
+    name out = { 0 };                                                     \
+    out.len = to - from;                                                  \
+    if (out.len > 0) {                                                    \
+        out.data = from + slice.data;                                     \
+    }                                                                     \
+    return out;                                                           \
 }
 
-#define RIPC_SLICE(in, out, from, to) slice_raw((RawSlice*) &(in), (RawSlice*) &(out), (from), (to), sizeof((out).data[0]))
-#define RIPC_SLICE_GET(slice, i) assert(0 <= (i) && (i) < (slice).len), slice.data[(i)]
-#define RIPC_SLICE_SET(slice, i, value) assert(0 <= (i) && (i) < (slice).len), slice.data[(i)] = (value)
-
-typedef struct SliceU8 {
-    u8    *data;
-    isize len;
-} SliceU8;
-typedef SliceU8 Bytes;
+RIPC_DEFINE_SLICE_TYPE(Bytes, u8);
+RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(Bytes, u8, bytes_);
 
 // ripc: strings
 
