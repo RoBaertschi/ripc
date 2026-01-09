@@ -298,7 +298,7 @@ RIPC_FUNC Bytes fs_read_entire_file(Arena *arena, String path, b32 *ok) {
     isize len = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    Bytes data = arena_push_slice(arena, Bytes, len);
+    Bytes data = bytes_new(arena, len);
     fread(data.data, sizeof(u8), len, file);
 
     fclose(file);

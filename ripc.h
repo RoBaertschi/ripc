@@ -255,7 +255,7 @@ RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(Bytes, u8, bytes);
 RIPC_DEFINE_SLICE_TYPE(String, u8);
 RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(String, u8, string);
 
-#define RIPC_STR(s) (String) { .data = (u8*)(s), .len = sizeof(s) - 1 };
+#define RIPC_STR(s) (String) { .data = (u8*)(s), .len = sizeof(s) - 1 }
 
 RIPC_FUNC b32 string_eq(String a, String b);
 
