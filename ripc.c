@@ -183,7 +183,7 @@ RIPC_FUNC void *arena_push(Arena *arena, isize size, isize alignment) {
             arena->commited = new_commited;
         }
 
-        arena->pos += size;
+        arena->pos = current_pos+ size;
         RIPC_ASAN_UNPOISON(arena->data, arena->pos);
 
         address = (void*)(current_pos + (uintptr)arena->data);

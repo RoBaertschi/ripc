@@ -51,7 +51,7 @@ typedef double f64;
 #   error "Unsupported compiler."
 #endif
 
-#if defined (RIPC_COMPILER_CLANG)
+#if defined (RIPC_COMPILER_CLANG) || defined (RIPC_COMPILER_GCC)
 #   define RIPC_ALIGNOF(a) __alignof(a)
 #elif defined (RIPC_COMPILER_GCC)
 #   define RIPC_ALIGNOF(a) __alignof__(a)
@@ -59,13 +59,33 @@ typedef double f64;
 #   error "Unsupported alignof for current compiler."
 #endif
 
-#if defined (RIPC_COMPILER_CLANG)
+#if defined (RIPC_COMPILER_CLANG) || defined (RIPC_COMPILER_GCC)
 #   ifndef RIPC_THREAD_LOCAL
 #       define RIPC_THREAD_LOCAL __thread
 #   endif
 #else
 // TODO(robin): msvc __declspec(thread)
-#   error "Unsupported thread local for current compiler"
+#   error "Unsupported thread local for current compiler."
+#endif
+
+#if defined (RIPC_COMPILER_CLANG) || defined (RIPC_COMPILER_GCC)
+#   ifndef RIPC_CLZ
+#       define RIPC_CLZ(value) (isize)__builtin_clzll(value)
+#   endif
+#else
+#   error "Unsupported count leading zeros for current compiler."
+#endif
+
+#if defined (RIPC_COMPILER_CLANG) || defined (RIPC_COMPILER_GCC)
+#   if defined (__i386__)
+#       define RIPC_32BIT 1
+#   elif defined (__x86_64__)
+#       define RIPC_64BIT 1
+#   else
+#       error "Unsupported architecture."
+#   endif
+#else
+#   error "Unsupported architecture detection for current compiler."
 #endif
 
 #ifdef RIPC_LINUX
@@ -281,6 +301,139 @@ RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(String, u8, string);
 RIPC_FUNC b32 string_eq(String a, String b);
 RIPC_FUNC char* string_to_cstring(Arena *arena, String str);
 RIPC_FUNC String string_from_cstring(char const* cstring);
+
+// ripc: xar
+//       implementation based on https://github.com/odin-lang/Odin/blob/master/core/container/xar/xar.odin
+//       from this commit: https://github.com/odin-lang/Odin/commit/6f396ac49b159e5741579d3b5bb50318e8e75851
+//       the xar implementation is licensed under the zlib license from odin
+//
+
+//       Copyright (c) 2016-2025 Ginger Bill. All rights reserved.
+//
+//       This software is provided 'as-is', without any express or implied
+//       warranty. In no event will the authors be held liable for any damages
+//       arising from the use of this software.
+//
+//       Permission is granted to anyone to use this software for any purpose,
+//       including commercial applications, and to alter it and redistribute it
+//       freely, subject to the following restrictions:
+//
+//       1. The origin of this software must not be misrepresented; you must not
+//          claim that you wrote the original software. If you use this software
+//          in a product, an acknowledgment in the product documentation would be
+//          appreciated but is not required.
+//       2. Altered source versions must be plainly marked as such, and must not be
+//          misrepresented as being the original software.
+//       3. This notice may not be removed or altered from any source distribution.
+
+//       attempt at correctly implementing a Xar
+
+#ifdef RIPC_32BIT
+#define RIPC__XAR_PLATFORM_BITS_LOG2 5
+#elif defined (RIPC_64BIT)
+#define RIPC__XAR_PLATFORM_BITS_LOG2 6
+#endif
+
+typedef struct Xar__MetaResult {
+    usize chunk_idx;
+    usize elem_idx;
+    usize chunk_cap;
+} Xar__MetaResult;
+
+static inline Xar__MetaResult xar__meta_get(usize shift, usize index) { // TODO(robin): maybe adjust using a macro for inline functions
+    Xar__MetaResult result = { 0 };
+    result.elem_idx = index;
+    result.chunk_cap = ((usize)1) << shift;
+    result.chunk_idx = 0;
+    usize index_shift = index >> shift;
+    if (index_shift > 0) {
+        usize n = 8 * sizeof(usize) - 1;
+        result.chunk_idx = n - RIPC_CLZ(index_shift);
+        result.chunk_cap = 1 << (result.chunk_idx + shift);
+        result.elem_idx  -= result.chunk_cap;
+        result.chunk_idx += 1;
+    }
+
+    return result;
+}
+
+#define RIPC_DEFINE_XAR_TYPE(name, type, XAR_SHIFT, XAR_SHIFT_LOG2)           \
+typedef struct name {                                                         \
+    isize len;                                                                \
+    type  *chunks[(1 << (RIPC__XAR_PLATFORM_BITS_LOG2 - XAR_SHIFT_LOG2)) + 1];\
+} name;                                                                       \
+typedef struct name##Iterator {                                               \
+    name  *xar;                                                               \
+    isize idx;                                                                \
+} name##Iterator;                                                             \
+typedef struct name##IteratorResult {                                         \
+    b32  ok;                                                                  \
+    type value;                                                               \
+} name##IteratorResult;
+
+#define RIPC_DEFINE_XAR_FUNCTIONS_PROTOTYPES(name, type, function_prefix) \
+RIPC_FUNC type function_prefix##_get(name *xar, isize idx);                          \
+RIPC_FUNC type *function_prefix##_get_ptr(name *xar, isize idx);                     \
+RIPC_FUNC void function_prefix##_set(name *xar, isize idx, type value);              \
+RIPC_FUNC type function_prefix##_pop(name *xar);                                     \
+RIPC_FUNC void function_prefix##_push(Arena *arena, name *xar, type value);          \
+RIPC_FUNC name##IteratorResult function_prefix##_iterator_next(name##Iterator *iter);\
+RIPC_FUNC type *function_prefix##_iterator_next_ptr(name##Iterator *iter);
+
+#define RIPC_DEFINE_XAR_FUNCTIONS(name, type, function_prefix, XAR_SHIFT)               \
+RIPC_FUNC type function_prefix##_get(name *xar, isize idx) {                            \
+    assert(0 <= idx && idx <= xar->len);                                                \
+    Xar__MetaResult result = xar__meta_get(XAR_SHIFT, (usize)idx);                      \
+    return xar->chunks[result.chunk_idx][result.elem_idx];                              \
+}                                                                                       \
+RIPC_FUNC type *function_prefix##_get_ptr(name *xar, isize idx) {                       \
+    assert(0 <= idx && idx <= xar->len);                                                \
+    Xar__MetaResult result = xar__meta_get(XAR_SHIFT, (usize)idx);                      \
+    return &xar->chunks[result.chunk_idx][result.elem_idx];                             \
+}                                                                                       \
+RIPC_FUNC void function_prefix##_set(name *xar, isize idx, type value) {                \
+    assert(0 <= idx && idx <= xar->len);                                                \
+    Xar__MetaResult result = xar__meta_get(XAR_SHIFT, (usize)idx);                      \
+    xar->chunks[result.chunk_idx][result.elem_idx] = value;                             \
+}                                                                                       \
+RIPC_FUNC type function_prefix##_pop(name *xar) {                                       \
+    assert(xar->len > 0);                                                               \
+    usize index = xar->len-1;                                                           \
+    Xar__MetaResult result = xar__meta_get(XAR_SHIFT, index);                           \
+    xar->len -= 1;                                                                      \
+    return xar->chunks[result.chunk_idx][result.elem_idx];                              \
+}                                                                                       \
+RIPC_FUNC void function_prefix##_push(Arena *arena, name *xar, type value) {            \
+    Xar__MetaResult result = xar__meta_get(XAR_SHIFT, (usize)xar->len);                 \
+    if (xar->chunks[result.chunk_idx] == NULL) {                                        \
+        xar->chunks[result.chunk_idx] = arena_push_array(arena, type, result.chunk_cap);\
+    }                                                                                   \
+    xar->chunks[result.chunk_idx][result.elem_idx] = value;                             \
+    xar->len += 1;                                                                      \
+}                                                                                       \
+RIPC_FUNC name##IteratorResult function_prefix##_iterator_next(name##Iterator *iter) {  \
+    if (iter->idx >= iter->xar->len) {                                                  \
+        return (name##IteratorResult) {                                                 \
+            .ok = false,                                                                \
+        };                                                                              \
+    }                                                                                   \
+    name##IteratorResult result = {                                                     \
+        .ok    = true,                                                                  \
+        .value = function_prefix##_get(iter->xar, iter->idx),                           \
+    };                                                                                  \
+    iter->idx += 1;                                                                     \
+    return result;                                                                      \
+}                                                                                       \
+RIPC_FUNC type *function_prefix##_iterator_next_ptr(name##Iterator *iter) {             \
+    if (iter->idx >= iter->xar->len) {                                                  \
+        return NULL;                                                                    \
+    }                                                                                   \
+    type *value = function_prefix##_get_ptr(iter->xar, iter->idx);                      \
+    iter->idx += 1;                                                                     \
+    return value;                                                                       \
+}
+
+
 
 // ripc: file system
 
