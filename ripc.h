@@ -214,37 +214,58 @@ typedef struct name {                      \
     isize len;                             \
 } name;                                    \
 
-#define RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(name, type, function_prefix) \
-RIPC_FUNC name function_prefix##_new(Arena *arena, isize count);            \
-RIPC_FUNC type function_prefix##_get(name slice, isize idx);                \
-RIPC_FUNC void function_prefix##_set(name slice, isize idx, type item);     \
+#define RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(name, type, function_prefix)             \
+RIPC_FUNC name function_prefix##_new(Arena *arena, isize count);                        \
+RIPC_FUNC name function_prefix##_clone(Arena *arena, name slice);                       \
+RIPC_FUNC name function_prefix##_concat(Arena *arena, name *slices, isize slice_count); \
+RIPC_FUNC type function_prefix##_get(name slice, isize idx);                            \
+RIPC_FUNC void function_prefix##_set(name slice, isize idx, type item);                 \
 RIPC_FUNC name function_prefix##_slice(name slice, isize from, isize to);
 
-#define RIPC_DEFINE_SLICE_FUNCTIONS(name, type, function_prefix)          \
-RIPC_FUNC name function_prefix##_new(Arena *arena, isize count) {         \
-    type *data = arena_push_array(arena, type, count);                    \
-    return (name) {                                                       \
-        .data = data,                                                     \
-        .len = data == NULL ? 0 : count,                                  \
-    };                                                                    \
-}                                                                         \
-RIPC_FUNC type function_prefix##_get(name slice, isize idx) {             \
-    assert(0 <= idx && idx < slice.len);                                  \
-    return slice.data[idx];                                               \
-}                                                                         \
-RIPC_FUNC void function_prefix##_set(name slice, isize idx, type item) {  \
-    assert(0 <= idx && idx < slice.len);                                  \
-    slice.data[idx] = item;                                               \
-}                                                                         \
-                                                                          \
-RIPC_FUNC name function_prefix##_slice(name slice, isize from, isize to) {\
-    assert(0 <= from && from <= to && to <= slice.len);                   \
-    name out = { 0 };                                                     \
-    out.len = to - from;                                                  \
-    if (out.len > 0) {                                                    \
-        out.data = from + slice.data;                                     \
-    }                                                                     \
-    return out;                                                           \
+#define RIPC_DEFINE_SLICE_FUNCTIONS(name, type, function_prefix)                                 \
+RIPC_FUNC name function_prefix##_new(Arena *arena, isize count) {                                \
+    type *data = arena_push_array(arena, type, count);                                           \
+    return (name) {                                                                              \
+        .data = data,                                                                            \
+        .len = data == NULL ? 0 : count,                                                         \
+    };                                                                                           \
+}                                                                                                \
+RIPC_FUNC name function_prefix##_clone(Arena *arena, name slice){                                \
+    name new_slice = function_prefix##_new(arena, slice.len);                                    \
+    memcpy(new_slice.data, slice.data, sizeof(type) * slice.len);                                \
+    return new_slice;                                                                            \
+}                                                                                                \
+RIPC_FUNC name function_prefix##_concat(Arena *arena, name *slices, isize slice_count) {         \
+    name new_slice = { 0 };                                                                      \
+    for (isize i = 0; i < slice_count; i ++) {                                                   \
+         type *data = arena_push_array(arena, type, slices[i].len);                              \
+         if (new_slice.data == NULL) {                                                           \
+            new_slice.data = data;                                                               \
+            new_slice.len = slices[i].len;                                                       \
+            memcpy(new_slice.data, slices[i].data, slices[i].len * sizeof(type));                \
+         } else {                                                                                \
+            memcpy(new_slice.data + new_slice.len, slices[i].data, slices[i].len * sizeof(type));\
+            new_slice.len += slices[i].len;                                                      \
+         }                                                                                       \
+    }                                                                                            \
+    return new_slice;                                                                            \
+}                                                                                                \
+RIPC_FUNC type function_prefix##_get(name slice, isize idx) {                                    \
+    assert(0 <= idx && idx < slice.len);                                                         \
+    return slice.data[idx];                                                                      \
+}                                                                                                \
+RIPC_FUNC void function_prefix##_set(name slice, isize idx, type item) {                         \
+    assert(0 <= idx && idx < slice.len);                                                         \
+    slice.data[idx] = item;                                                                      \
+}                                                                                                \
+RIPC_FUNC name function_prefix##_slice(name slice, isize from, isize to) {                       \
+    assert(0 <= from && from <= to && to <= slice.len);                                          \
+    name out = { 0 };                                                                            \
+    out.len = to - from;                                                                         \
+    if (out.len > 0) {                                                                           \
+        out.data = from + slice.data;                                                            \
+    }                                                                                            \
+    return out;                                                                                  \
 }
 
 RIPC_DEFINE_SLICE_TYPE(Bytes, u8);
@@ -258,6 +279,8 @@ RIPC_DEFINE_SLICE_FUNCTIONS_PROTOTYPES(String, u8, string);
 #define RIPC_STR(s) (String) { .data = (u8*)(s), .len = sizeof(s) - 1 }
 
 RIPC_FUNC b32 string_eq(String a, String b);
+RIPC_FUNC char* string_to_cstring(Arena *arena, String str);
+RIPC_FUNC String string_from_cstring(char const* cstring);
 
 // ripc: file system
 

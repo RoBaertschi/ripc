@@ -196,7 +196,10 @@ RIPC_FUNC void *arena_push(Arena *arena, isize size, isize alignment) {
 RIPC_FUNC void arena_pos_set(Arena *arena, usize pos) {
     RIPC_MUTEX_GUARD(&arena->mutex) {
         arena->pos = RIPC_MAX(pos, sizeof(Arena));
-        RIPC_ASAN_POISON((void*)(arena->pos + (uintptr)arena->data), arena->reserved);
+        void *data = arena->data;
+        usize pos = arena->pos;
+        RIPC_ASAN_POISON(arena->data, arena->reserved);
+        RIPC_ASAN_UNPOISON(data, pos);
     }
 }
 
@@ -265,6 +268,18 @@ RIPC_DEFINE_SLICE_FUNCTIONS(String, u8, string);
 
 // ripc: strings
 
+RIPC_FUNC b32 string_eq(String a, String b) {
+    if (a.len != b.len) {
+        return false;
+    }
+
+    if (a.len == 0 && b.len == 0) {
+        return true;
+    }
+
+    return memcmp(a.data, b.data, (usize)a.len) == 0;
+}
+
 RIPC_FUNC char* string_to_cstring(Arena *arena, String str) {
     char* cstr = arena_push_array(arena, char, str.len + 1);
     cstr[str.len] = 0;
@@ -272,21 +287,21 @@ RIPC_FUNC char* string_to_cstring(Arena *arena, String str) {
     return cstr;
 }
 
-RIPC_FUNC b32 string_eq(String a, String b) {
-    if (a.len != b.len) {
-        return false;
+RIPC_FUNC String string_from_cstring(char const* cstring) {
+    if (cstring == NULL) {
+        return (String) { 0 };
     }
 
-    return memcmp(a.data, b.data, (usize)a.len) == 0;
+    return (String) { .data = (u8*) cstring, .len = strlen(cstring) };
 }
 
 // ripc: file system
 
 RIPC_FUNC Bytes fs_read_entire_file(Arena *arena, String path, b32 *ok) {
-    ArenaTemp temp = arena_scratch_get(NULL, 0);
+    ArenaTemp temp = arena_scratch_get(&arena, 1);
     char const* cpath = string_to_cstring(temp.arena, path);
-    arena_scratch_end(temp);
     FILE *file = fopen(cpath, "r");
+    arena_scratch_end(temp);
     if (file == NULL) {
         if (ok != NULL) {
             *ok = false;
