@@ -433,6 +433,26 @@ RIPC_FUNC type *function_prefix##_iterator_next_ptr(name##Iterator *iter) {     
     return value;                                                                       \
 }
 
+// ripc: xar -> blocks
+#define RIPC_DEFINE_XAR_BLOCKS_TYPE(name, blockname, blockcapacity, type, XAR_SHIFT, XAR_SHIFT_LOG2) \
+typedef struct blockname {                                                                           \
+    isize len;                                                                                       \
+    type  data[(blockcapacity)];                                                                     \
+} blockname;                                                                                         \
+RIPC_DEFINE_XAR_TYPE(name, blockname, XAR_SHIFT, XAR_SHIFT_LOG2);
+
+
+#define RIPC_DEFINE_XAR_BLOCKS_FUNCTIONS_PROTOTYPES(name, blockname, slicetype, type, function_prefix) \
+RIPC_FUNC slicetype function_prefix##_data_get(Arena *arena, name *xar, isize from, isize to);         \
+RIPC_FUNC void function_prefix##_data_set(name *xar, isize idx, type value);                           \
+RIPC_DEFINE_XAR_FUNCTIONS_PROTOTYPES(name, blockname, function_prefix);
+
+#define RIPC_DEFINE_XAR_BLOCKS_FUNCTIONS(name, blockname, slicetype, type, function_prefix, XAR_SHIFT) \
+RIPC_FUNC slicetype function_prefix##_data_get(Arena *arena, name *xar, isize from, isize to) {        \
+}                                                                                                      \
+RIPC_FUNC void function_prefix##_data_set(name *xar, isize idx, type value) {                          \
+}                                                                                                      \
+RIPC_DEFINE_XAR_FUNCTIONS(name, blockname, function_prefix, XAR_SHIFT);
 
 
 // ripc: file system
